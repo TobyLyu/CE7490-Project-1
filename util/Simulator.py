@@ -3,6 +3,7 @@ import numpy as np
 import random
 import os
 import copy
+import math
 from time import time
 import threading 
 import functools
@@ -79,27 +80,49 @@ class FaasSimulator():
         save = arg[1]
         invoc_info_col = ["HashOwner", "HashApp", "HashFunction"]
 
-        inv_tmp = copy.deepcopy(self.inv_raw[i]).set_index(invoc_info_col).sort_index()
+        inv_tmp = copy.deepcopy(self.inv_raw[i]).set_index(invoc_info_col).iloc[:, 1:].sort_index()
         
         # func_name = inv_tmp[invoc_info_col].values
         func_name = np.vstack([[inv_tmp.index.get_level_values(0).values, 
                                 inv_tmp.index.get_level_values(1).values, 
                                 inv_tmp.index.get_level_values(2).values]]).T 
         # ipdb.set_trace()        
-        
-        for j in trange(self.day_len):
-            exec_func_name = func_name[inv_tmp.loc[:, str(j+1)].values.astype(bool)]
-            # with tqdm(total=len(exec_func_name)) as pbar:
-            for func_ in exec_func_name:
-                # pbar.update(1)
+        with tqdm(total=len(func_name)) as pbar:
+            for func_ in func_name:
+                pbar.update(1)
                 try:
                     dur = self.__generate_func_dur(day=str(i+1), ID_arr=func_)
+                    if not dur:
+                        inv_tmp.loc[(func_[0], func_[1], func_[2]), :] = 0
+                        continue
                 except KeyError:
-                    inv_tmp.loc[(func_[0], func_[1], func_[2]), str(j+1)] = 0
+                    inv_tmp.loc[(func_[0], func_[1], func_[2]), :] = 0
                     continue # we do not have info for this func
-                func_start_time = max(0.01, j + 1 - dur)
-                for idx, tick in enumerate(np.ceil(np.arange(func_start_time, j+1, 1)).astype(int)):
-                    inv_tmp.loc[(func_[0], func_[1], func_[2]), str(tick)] = self.invc_flag[int(bool(idx))]
+                func_invc_series = inv_tmp.loc[(func_[0], func_[1], func_[2])].values
+                for t, state in enumerate(func_invc_series):
+                    if state:
+                        # ipdb.set_trace()   
+                        func_start_time = max(0.01, t + 1 - dur)
+                        exec_time = np.ceil(np.arange(func_start_time, t + 1, 1)).astype(int).astype(str)
+                        if dur <= 1:
+                            inv_tmp.loc[(func_[0], func_[1], func_[2]), exec_time[0]] = 2
+                        else:
+                            inv_tmp.loc[(func_[0], func_[1], func_[2]), exec_time[0]] = 2
+                            inv_tmp.loc[(func_[0], func_[1], func_[2]), (x for x in exec_time[1:])] = 1
+        
+        # for j in trange(self.day_len):
+        #     exec_func_name = func_name[inv_tmp.loc[:, str(j+1)].values.astype(bool)]
+        #     # with tqdm(total=len(exec_func_name)) as pbar:
+        #     for func_ in exec_func_name:
+        #         # pbar.update(1)
+        #         try:
+        #             dur = self.__generate_func_dur(day=str(i+1), ID_arr=func_)
+        #         except KeyError:
+        #             inv_tmp.loc[(func_[0], func_[1], func_[2]), str(j+1)] = 0
+        #             continue # we do not have info for this func
+        #         func_start_time = max(0.01, j + 1 - dur)
+        #         for idx, tick in enumerate(np.ceil(np.arange(func_start_time, j+1, 1)).astype(int)):
+        #             inv_tmp.loc[(func_[0], func_[1], func_[2]), str(tick)] = self.invc_flag[int(bool(idx))]
         
         self.exe_raw[i] = inv_tmp.sort_index()
         if save == True:
@@ -165,10 +188,13 @@ class FaasSimulator():
                         app_lst = self.exe_raw[i].loc[owner].index.get_level_values(0).unique().values
                         for app in app_lst:
                             # ipdb.set_trace()
-                            exec_series = np.any(self.exe_raw[i].loc[owner, app].iloc[:, 1:].values, axis=0)
+                            # func_exec_series = self.exe_raw[i].loc[owner, app].iloc[:, 1:].values
+                            exec_series = np.max(self.exe_raw[i].loc[owner, app].iloc[:, 1:].values, axis=0)
+                            
                             simApp = FixIntervalsimApp(intv, exec_series)
-                            cold_rate.append(simApp.cold_start_rate)
-                            mem_rate.append(simApp.mem_waste_rate)
+                            if not simApp.never_launch:
+                                cold_rate.append(simApp.cold_start_rate)
+                                mem_rate.append(simApp.mem_waste_rate)
             cold_start_rate_lst.append(cold_rate)
             wasted_mem_rate_lst.append(mem_rate)
 

@@ -166,6 +166,7 @@ class FixIntervalsimApp():
     def __init__(self, interval, func_series_in) -> None:
         # app properties
         self.keep_alive_interval = interval
+        self.never_launch = True
         self.idle_timer = 0
         self.app_state = False # False: off, True: On
         self.app_status = False # False: idle, True: Busy
@@ -197,6 +198,8 @@ class FixIntervalsimApp():
                 else:                                       # app not running, do nothing
                     continue
             elif func_state == 2:                           # function invocation
+                # ipdb.set_trace()
+                
                 self.app_status = True
                 self.busy_time += 1
                 self.idle_timer = 0
@@ -205,12 +208,17 @@ class FixIntervalsimApp():
                     self.cold_start_count += 1
                 else:                                       # this is warm start
                     self.warm_start_count += 1
-            elif func_state > 1:                            # function still in execution
+            elif func_state == 1:                           # function still in execution
+                # ipdb.set_trace()
+                
                 self.busy_time += 1
                 self.idle_timer = 0
                 
             app_series_out[t] = self.app_state
-        self.cold_start_rate = self.cold_start_count / (self.cold_start_count + self.warm_start_count)
-        self.mem_waste_rate = self.idle_time / (self.idle_time + self.busy_time)
+        # ipdb.set_trace()
+        if (self.cold_start_count + self.warm_start_count): 
+            self.never_launch = False
+            self.cold_start_rate = self.cold_start_count / (self.cold_start_count + self.warm_start_count)
+            self.mem_waste_rate = self.idle_time / (self.idle_time + self.busy_time)
             
                 

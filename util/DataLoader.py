@@ -50,8 +50,8 @@ class DataLoader():
         if len(exe_files): 
             self.exec_ = True          
             
-        # # DEBUG:
-        # self.max_day = 1
+        # DEBUG:
+        self.max_day = 1
         
         return [mem_files[:self.max_day], dur_files[:self.max_day], inv_files[:self.max_day], exe_files[:self.max_day]]
             
