@@ -2,13 +2,17 @@ import pandas as pd
 import numpy as np
 import os
 from tqdm import tqdm, trange
+import ipdb
 
 class DataLoader():
     def __init__(self, path) -> None:
         self.data_path = path
         self.mem_raw = None
         self.dur_raw = None
-        self.inv_raw = None
+        self.inv_files = []
+        self.json_ = False
+        self.exec_ = False
+        self.exec_files = []
         self.max_day = 0
         self.data_info_col = ["Day", "HashOwner", "HashApp", "HashFunction", "MemAve", "MemProb", "DurAve", "DurProb"]
         self.data_info = pd.DataFrame({"Day":[],
@@ -24,25 +28,32 @@ class DataLoader():
         """get files in data path
 
         Returns:
-            list: return file names of data [mem[], dur[], inv[], 'json_name']
+            [list]: return file names of data [mem[], dur[], inv[], exe[]]
         """
         files_names = os.listdir(self.data_path)
+        json_name = [v for v in files_names if 'json' in v]
         mem_files = [file for file in files_names if file[0] ==  'a']
         dur_files = [file for file in files_names if file[0] ==  'f']
         inv_files = [file for file in files_names if file[0] ==  'i']
+        exe_files = [file for file in files_names if file[0] ==  'e']
         mem_files.sort()
         dur_files.sort()
         inv_files.sort()
+        exe_files.sort()
         # some date's file may be incompeleted
         self.max_day = min(mem_files[-1][-6:-4], dur_files[-1][-6:-4], inv_files[-1][-6:-4])
         self.max_day = int(self.max_day)
         
-        json_name = [v for v in files_names if 'json' in v]
-        
+        if len(json_name): 
+            self.json_ = True 
+
+        if len(exe_files): 
+            self.exec_ = True          
+            
         # # DEBUG:
         # self.max_day = 1
         
-        return [mem_files[:self.max_day], dur_files[:self.max_day], inv_files[:self.max_day], json_name]
+        return [mem_files[:self.max_day], dur_files[:self.max_day], inv_files[:self.max_day], exe_files[:self.max_day]]
             
             
     def __cal_distribute(self, percentile_in) -> list:
@@ -87,6 +98,7 @@ class DataLoader():
 
         print("Generating function properties...")
         # filter out app/func names that have both mem and dur properties
+        full_data = []
         for i in range(self.max_day):
             this_day = [[] for _ in range(len(self.dur_raw[i]))]
             this_mem_raw = self.mem_raw[i].set_index(["HashOwner", "HashApp"])
@@ -126,43 +138,54 @@ class DataLoader():
                                 continue
                         # save all good value to this_day
                         this_day[dur_idx] = (str(i+1), dur_row["HashOwner"], dur_row["HashApp"], dur_row["HashFunction"], mem_ave, mem_prob, dur_ave, dur_prob)
+                        if type(dur_ave[0]) != int:
+                            
+                            print(dur_ave)
                     except KeyError:
                         continue
                 this_day = list(filter(None, this_day)) # filter out unused entry
-                self.data_info = pd.concat([self.data_info, pd.DataFrame(this_day, columns=self.data_info_col)], ignore_index=True)
-                
-        self.data_info.set_index(self.data_info_col[:4])
+                full_data += this_day
+        self.data_info = pd.DataFrame(full_data, columns=self.data_info_col).drop_duplicates(subset=self.data_info_col[:4])
         
+        # self.data_info = self.data_info.pivot_table(["MemAve", "MemProb", "DurAve", "DurProb"], index=["Day", "HashOwner", "HashApp", "HashFunction"], aggfunc="mean")
+                        
         if save == True:
             output_path = os.path.join(self.data_path, "function_properties.json")
             self.data_info.to_json(output_path, orient='index')
+            
+        self.data_info = self.data_info.set_index(self.data_info_col[:4]).sort_index()
     
+
     
     def load_dataset(self) -> None:
         """load all completed dataset in the folder
         """
         
-        print("Loading dataset...")
-        [mem_files, dur_files, inv_files, json_name] = self.__get_files()
+        print(".........................................................")
+        print(".....................Loading.............................")
+        print(".........................................................")
+        [mem_files, dur_files, inv_files, exec_files] = self.__get_files()
         self.mem_raw = [ [] for _ in range(self.max_day)]
         self.dur_raw = [ [] for _ in range(self.max_day)]
-        self.inv_raw = [ [] for _ in range(self.max_day)]
+        # self.inv_raw = [ [] for _ in range(self.max_day)]
+        self.inv_files = inv_files
+        self.exec_files = exec_files
         
-        if len(json_name) != 0:
-            print("Lucky we found properties from JSON!")
-            print("Now we are loading these properties...")
-            json_path = os.path.join(self.data_path, json_name[0])
-            self.data_info = pd.read_json(json_path).T.set_index(self.data_info_col[:4])
-            print("Now we are loading the invocation data...")
-            for i in trange(self.max_day):
-                self.inv_raw[i] = pd.read_csv(os.path.join(self.data_path, inv_files[i]))
+        print("Loading dataset properties...")
+        if self.json_:
+            print("!!!Lucky we found properties from JSON! Loading it now!")
+            json_path = os.path.join(self.data_path, "function_properties.json")
+            self.data_info = pd.read_json(json_path).T.set_index(self.data_info_col[:4]).sort_index()
+            
+            # print("Now we are loading the invocation data...")
+            # for i in trange(self.max_day):
+            #     self.inv_raw[i] = pd.read_csv(os.path.join(self.data_path, inv_files[i]))
         else:
             print("Oh no! Seems we need to generate a properties file for dataset!")
             print("It can be slow...But no worries we will save the result after finishing!")
             for i in trange(self.max_day):
                 self.mem_raw[i] = pd.read_csv(os.path.join(self.data_path, mem_files[i]))
                 self.dur_raw[i] = pd.read_csv(os.path.join(self.data_path, dur_files[i]))
-                self.inv_raw[i] = pd.read_csv(os.path.join(self.data_path, inv_files[i]))
+                # self.inv_raw[i] = pd.read_csv(os.path.join(self.data_path, inv_files[i]))
             self.__gen_properties()
-        
-        print("SUCCESSFULLY loading dataset and properties!")
+        print("SUCCESS!")

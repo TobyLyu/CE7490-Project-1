@@ -8,4 +8,7 @@ from util.Simulator import FaasSimulator
 loader = DataLoader(path="dataset")
 loader.load_dataset()
 
-simulator = FaasSimulator()
+simulator = FaasSimulator(loader)
+
+simulator.prepare()
+simulator.run()
