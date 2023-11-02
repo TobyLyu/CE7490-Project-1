@@ -156,11 +156,14 @@ class SystemAnalyzer():
             cold_rate (list): a list cold rates for all apps
         """
         sort_idx = np.argsort(np.array(cold_rate))
-        cold_rate = cold_rate[sort_idx]
-        mem_rate = mem_rate[sort_idx]
+        cold_rate = np.array(cold_rate)[sort_idx]
+        mem_rate = np.array(mem_rate)[sort_idx]
         
         idx_75_pert = int(len(cold_rate) * 0.75)
+        cold_start_rate = cold_rate[idx_75_pert]
+        mem_idle_rate = mem_rate[idx_75_pert]
         
+        plt.scatter(cold_start_rate, mem_idle_rate)
 
 class FixIntervalsimApp():
     def __init__(self, interval, func_series_in) -> None:

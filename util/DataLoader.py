@@ -157,7 +157,7 @@ class DataLoader():
     
 
     
-    def load_dataset(self) -> None:
+    def load_dataset(self, i) -> None:
         """load all completed dataset in the folder
         """
         

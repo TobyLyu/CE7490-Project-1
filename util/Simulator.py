@@ -172,34 +172,33 @@ class FaasSimulator():
         print("SUCCESS!")
         
         
-    def run(self):
+    def run(self, arg):
+        [intv, i] = arg
         cold_start_rate_lst = []
         wasted_mem_rate_lst = []
-        for intv in [10, 20, 50, 100, 150, 200]:
+        # for intv in [10, 20, 50, 100, 150, 200]:
         # for intv in [10, 20]:
-            cold_rate = []
-            mem_rate = []
-            for i in range(self.max_day):
-                owner_lst = self.exe_raw[i].index.get_level_values(0).unique().values
-                with tqdm(total=len(owner_lst)) as pbar:
-                    for owner in owner_lst:
-                        pbar.update(1)
+        cold_rate = []
+        mem_rate = []
+        for i in range(self.max_day):
+            owner_lst = self.exe_raw[i].index.get_level_values(0).unique().values
+            with tqdm(total=len(owner_lst)) as pbar:
+                for owner in owner_lst:
+                    pbar.update(1)
+                    
+                    app_lst = self.exe_raw[i].loc[owner].index.get_level_values(0).unique().values
+                    for app in app_lst:
+                        # ipdb.set_trace()
+                        # func_exec_series = self.exe_raw[i].loc[owner, app].iloc[:, 1:].values
+                        exec_series = np.max(self.exe_raw[i].loc[owner, app].iloc[:, 1:].values, axis=0)
                         
-                        app_lst = self.exe_raw[i].loc[owner].index.get_level_values(0).unique().values
-                        for app in app_lst:
-                            # ipdb.set_trace()
-                            # func_exec_series = self.exe_raw[i].loc[owner, app].iloc[:, 1:].values
-                            exec_series = np.max(self.exe_raw[i].loc[owner, app].iloc[:, 1:].values, axis=0)
-                            
-                            simApp = FixIntervalsimApp(intv, exec_series)
-                            if not simApp.never_launch:
-                                cold_rate.append(simApp.cold_start_rate)
-                                mem_rate.append(simApp.mem_waste_rate)
-            cold_start_rate_lst.append(cold_rate)
-            wasted_mem_rate_lst.append(mem_rate)
+                        simApp = FixIntervalsimApp(intv, exec_series)
+                        if not simApp.never_launch:
+                            cold_rate.append(simApp.cold_start_rate)
+                            mem_rate.append(simApp.mem_waste_rate)
+        cold_start_rate_lst.append(cold_rate)
+        wasted_mem_rate_lst.append(mem_rate)
 
+        return(cold_start_rate_lst, wasted_mem_rate_lst)
         # ipdb.set_trace()
 
-        for i in range(6): 
-            SystemAnalyzer.draw_cold_rate(cold_start_rate_lst[i])
-        plt.show()
