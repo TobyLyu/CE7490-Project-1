@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 import ipdb
 from tqdm import tqdm, trange
-from util.Manager import BaselineManager, FixIntervalsimApp, FixIntervalsimSys, SystemAnalyzer
+from util.Manager import FixIntervalsimApp, FixIntervalsimSys
 
 
 def call_it(instance, name, arg):
@@ -92,24 +92,26 @@ class FaasSimulator():
         with tqdm(total=len(func_name)) as pbar:
             for func_ in func_name:
                 pbar.update(1)
-                try:
-                    dur = self.__generate_func_dur(day=str(i), ID_arr=func_)
-                    if not dur:
-                        inv_tmp.loc[(func_[0], func_[1], func_[2]), :] = 0
-                        continue
-                except KeyError:
-                    inv_tmp.loc[(func_[0], func_[1], func_[2]), :] = 0
-                    continue # we do not have info for this func
                 func_invc_series = inv_tmp.loc[(func_[0], func_[1], func_[2])].values
+                # print(func_invc_series)
+                # ipdb.set_trace()
                 for t, state in enumerate(func_invc_series):
                     if state:
+                        try:
+                            dur = self.__generate_func_dur(day=str(i), ID_arr=func_)
+                            if not dur: # some duration is unrepresentative in the dataset (dur = 0). we set it to 0.01min
+                                dur = 0.01
+                                # continue
+                        except KeyError:
+                            inv_tmp.loc[(func_[0], func_[1], func_[2]), :] = 0
+                            continue # we do not have info for this func
                         # ipdb.set_trace()   
                         func_start_time = max(0.01, t + 1 - dur)
-                        exec_time = np.ceil(np.arange(func_start_time, t + 1, 1)).astype(int).astype(str)
-                        if dur <= 1:
-                            inv_tmp.loc[(func_[0], func_[1], func_[2]), exec_time[0]] = 2
-                        else:
-                            inv_tmp.loc[(func_[0], func_[1], func_[2]), exec_time[0]] = 2
+                        exec_time = np.ceil(np.arange(func_start_time, t + 1, 1)).astype(int).astype(str) # the duration of this exec
+                        if dur <= 1: # within 1min: num of invocation+1
+                            inv_tmp.loc[(func_[0], func_[1], func_[2]), exec_time[0]] = state + 1
+                        else:   # func has some duration: first time slot: num of invocation+1; following time slot: 1
+                            inv_tmp.loc[(func_[0], func_[1], func_[2]), exec_time[0]] = state + 1
                             inv_tmp.loc[(func_[0], func_[1], func_[2]), (x for x in exec_time[1:])] = 1
         
         # for j in trange(self.day_len):

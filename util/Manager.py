@@ -125,90 +125,7 @@ class BaselineManager():
                 self.owner_dict[owner_id].app_dict[app_id].func_dict[func_id].dur_left += func.dur_left
             else:
                 self.owner_dict[owner_id].app_dict[app_id].func_dict[func_id] = func
-      
-      
-class SystemAnalyzer():
-    def __init__(self) -> None:
-        pass
-    
-    @classmethod
-    def draw_cold_rate(cls, cold_rate_in, legend):
-        """draw cold rate vs cdf figure
-
-        Args:
-            cold_rate (list): a list cold rates for all apps
-        """
-        
-        cold_rate = copy.deepcopy(cold_rate_in)
-        rates = [x * 0.01 for x in range(101)] # cold rate percentage
-        for i in range(len(cold_rate)):
-            cold_rate[i].sort() # ascending order
-            cdf_list = [0 for _ in range(101)]
-            ptr = 0
-            for idx, rate in enumerate(rates):
-                while ptr < len(cold_rate[i]) and cold_rate[i][ptr] <= rate: 
-                    ptr += 1
-                    
-                cdf_list[idx] = ptr * 1.0 / len(cold_rate[i]) # cdf
-        
-            plt.plot([x*100 for x in rates], cdf_list)
-        
-        plt.axhline(y=0.75, color='darkgray', linestyle='-') 
-        plt.xlabel("App Cold Start (%)")
-        plt.ylabel("CDF")
-        plt.xlim = [0, 105]
-        plt.ylim = [0, 1.05]
-        plt.grid()
-        plt.legend([str(x)+"-min" for x in legend])
-        plt.show()
-
-    @classmethod
-    def draw_mem_rate(cls, mem_rate_in, cold_rate_in, legend):
-        """draw memory wasted rate at 3rd quartile app cold start 
-
-        Args:
-            mem_rate (list): a list of wasted memory for all apps
-            cold_rate (list): a list cold rates for all apps
-        """
-        mem_idle_rate = []
-        cold_start_rate = []
-        assert len(mem_rate_in) == len(cold_rate_in)
-        assert len(mem_rate_in) > 1
-        
-        mem_rate = copy.deepcopy(mem_rate_in)
-        cold_rate = copy.deepcopy(cold_rate_in)
-        for i in range(len(mem_rate)):
-            sort_idx = np.argsort(np.array(cold_rate[i]))
-            cold_rate[i] = np.array(cold_rate[i])[sort_idx]
-            mem_rate[i] = np.array(mem_rate[i])[sort_idx]
-            
-            idx_75_pert = int(len(cold_rate[i]) * 0.75)
-            cold_start_rate.append(cold_rate[i][idx_75_pert])
-            mem_idle_rate.append(mem_rate[i][idx_75_pert])
-            
-        # normalized wasted memory time
-        mem_idle_rate = [x/mem_idle_rate[1]*100 for x in mem_idle_rate]
-        # mem_idle_rate = [x*100 for x in mem_idle_rate]
-        cold_start_rate = [x*100 for x in cold_start_rate]
-        # plt.scatter(cold_start_rate, mem_idle_rate,color='fuchsia')
-        for i in range(len(cold_start_rate)):
-            plt.scatter(cold_start_rate[i], mem_idle_rate[i])
-        plt.plot(cold_start_rate, mem_idle_rate, color='fuchsia')
-        plt.axhline(y=100, color='darkgray', linestyle='-')
-        plt.xlabel("3rd Quartile App Cold Start (%)")
-        plt.ylabel("Normalized Wasted Memory Time (%)")
-        plt.xlim = [0, 100]
-        plt.ylim = [90, 130]
-        plt.legend([str(x)+"-min" for x in legend])
-        plt.show()
-
-    @classmethod
-    def save_result(cls, data_in, path, name):
-        data = copy.deepcopy(data_in)
-        data = np.array(data)
-        filename = os.path.join(path, name)
-        np.savetxt(filename, data, delimiter=',')
-
+                
 class FixIntervalsimApp():
     def __init__(self, interval, func_series_in) -> None:
         # app properties
@@ -297,18 +214,22 @@ class FixIntervalsimSys():
         # update never launch----------------------------------
         self.sys_monitor["never_launch"] = ~np.any([~self.sys_monitor["never_launch"].values, exec_now.astype(bool)], axis=0)
         
+        # stop idle timeout app --------------------------------
+        timeout_apps = self.sys_monitor["idle_timer"].values >= interval
+        self.sys_monitor.loc[timeout_apps, "state"] = False
+        self.sys_monitor.loc[timeout_apps, "idle_timer"] = 0
+        
         # for those func stop running---------------------------
         stop_funcs = ~exec_now.astype(bool)
         self.sys_monitor.loc[stop_funcs, "status"] = False
-        idle_apps = np.all([self.sys_monitor["state"].values, ~self.sys_monitor["status"].values], axis=0) & stop_funcs
-        self.sys_monitor.loc[idle_apps, (["idle_time", "idle_timer"])] += 1
         
-        # stop idle timeout app
-        timeout_apps = (self.sys_monitor["idle_timer"].values >= interval) & stop_funcs
-        self.sys_monitor.loc[timeout_apps, "state"] = False
+        # if app is running
+        idle_apps = np.all([self.sys_monitor["state"].values, ~self.sys_monitor["status"].values], axis=0) & stop_funcs
+        self.sys_monitor.loc[idle_apps, (["idle_time", "idle_timer"])] += 1 
         
         # invocation func ----------------------------------
-        invc_app = (exec_now - 2) == 0
+        invc_app = (exec_now > 1)
+        # invc_app = (exec_now - 2) == 0
         # invc_app = (exec_now - 1) == 0
         self.sys_monitor.loc[invc_app, "status"] = True
         self.sys_monitor.loc[invc_app, "busy_time"] += 1
@@ -316,17 +237,18 @@ class FixIntervalsimSys():
         
         # warm start invocation func need to be count first
         warm_app = np.all([self.sys_monitor["state"].values, self.sys_monitor["status"].values], axis=0) & invc_app
-        self.sys_monitor.loc[warm_app, "warm_start_count"] += 1
+        self.sys_monitor.loc[warm_app, "warm_start_count"] += (exec_now[warm_app] - 1) # -1 is a flag added when generating the exec files
         
         # cold start invocation func count then (coz this will change state)
         cold_app = np.all([~self.sys_monitor["state"].values, self.sys_monitor["status"].values], axis=0) & invc_app
         self.sys_monitor.loc[cold_app, "state"] = True
         self.sys_monitor.loc[cold_app, "cold_start_count"] += 1
+        self.sys_monitor.loc[cold_app, "warm_start_count"] += (exec_now[cold_app] - 2) # -2 is one for flag, one for cold start
         
         # running func ----------------------------------
-        invc_app = (exec_now - 1) == 0
+        invc_app = (exec_now == 1) 
         self.sys_monitor.loc[invc_app, "busy_time"] += 1
-        self.sys_monitor.loc[invc_app, "idle_timer"] += 1
+        self.sys_monitor.loc[invc_app, "idle_timer"] = 0
         
     def cal_cold_rate(self):
         launch_func = ~self.sys_monitor["never_launch"].values
@@ -344,3 +266,18 @@ class GreedysimSys(FixIntervalsimSys):
     def __init__(self, app_name_list) -> None:
         super().__init__(app_name_list)
         self.total_mem = 0
+        self.column_names = ["HashOwner",
+                            "HashApp",
+                            "state", 
+                            "status", 
+                            "memory", 
+                            "idle_timer",
+                            "never_launch",
+                            "idle_time",
+                            "busy_time", 
+                            "cold_start_count", 
+                            "warm_start_count",
+                            "priority",
+                            "clock",
+                            "frequency"]
+        self.sys_monitor["priority"] = 0

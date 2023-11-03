@@ -6,9 +6,10 @@ from util.DataLoader import DataLoader
 from util.Simulator import FaasSimulator
 from multiprocessing import Process, Pool
 import ipdb
-from util.Manager import SystemAnalyzer
+from util.Analyzer import SystemAnalyzer
 
-intv_lst = [5, 10, 20, 30, 45, 60, 90, 120, 1440]
+# intv_lst = [5, 10, 20, 30, 45, 60, 90, 120, 1440]
+intv_lst = [1, 2, 4, 5, 6, 8, 10, 20, 30, 45, 60, 90, 120, 1440]
 # intv_lst = [5, 10, 20, 30]
 max_day = 12
 # max_day = 1
@@ -30,7 +31,7 @@ def proc(i):
         cold_rate_lst[idx] = cold_rate
         mem_rate_lst[idx] = mem_rate
     return [cold_rate_lst, mem_rate_lst]
-
+    # return True
 
 print(".....................Starting.............................")
 

@@ -1,4 +1,6 @@
 dataset/*
 small_sample/*
 full_sample/*
+result/*
+*.pyc
 *.docx
