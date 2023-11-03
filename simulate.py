@@ -8,10 +8,13 @@ from multiprocessing import Process, Pool
 import ipdb
 from util.Manager import SystemAnalyzer
 
-intv_lst = [5, 10, 20, 30, 45, 60, 90, 120]
+intv_lst = [5, 10, 20, 30, 45, 60, 90, 120, 1440]
 # intv_lst = [5, 10, 20, 30]
 max_day = 12
 # max_day = 1
+
+
+# process for fixed-interval strategy
 def proc(i):
     global intv_lst
     loader = DataLoader(path="dataset")
@@ -23,7 +26,7 @@ def proc(i):
     cold_rate_lst = [[] for _ in range(len(intv_lst))]
     mem_rate_lst = [[] for _ in range(len(intv_lst))]
     for idx, intv in enumerate(intv_lst):
-        [cold_rate, mem_rate] = simulator.run(intv)
+        [cold_rate, mem_rate] = simulator.run_sys(intv)
         cold_rate_lst[idx] = cold_rate
         mem_rate_lst[idx] = mem_rate
     return [cold_rate_lst, mem_rate_lst]
@@ -52,6 +55,7 @@ if __name__ == '__main__':
     
     itv_len = len(intv_lst)
 
+    # unpack result from multi-processing list
     cold_rate_data = [[] for _ in range(itv_len)]
     mem_rate_data = [[] for _ in range(itv_len)]
     for j in range(itv_len): # itv
@@ -62,7 +66,9 @@ if __name__ == '__main__':
 
     plt.figure(1)
     SystemAnalyzer.draw_cold_rate(cold_rate_data, legend=intv_lst)
-
         
     plt.figure(2)
-    SystemAnalyzer.draw_mem_rate(mem_rate_data, cold_rate_data, legend=intv_lst)      
+    SystemAnalyzer.draw_mem_rate(mem_rate_data, cold_rate_data, legend=intv_lst) 
+    
+    SystemAnalyzer.save_result(cold_rate_data, "result", "cold_rate_result.csv")
+    SystemAnalyzer.save_result(mem_rate_data, "result", "mem_rate_result.csv")

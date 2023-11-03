@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import copy
+import os
 import ipdb
 
 class simFunction():
@@ -170,8 +172,8 @@ class SystemAnalyzer():
         """
         mem_idle_rate = []
         cold_start_rate = []
-        assert len(mem_rate) == len(cold_rate)
-        assert len(mem_rate) > 1
+        assert len(mem_rate_in) == len(cold_rate_in)
+        assert len(mem_rate_in) > 1
         
         mem_rate = copy.deepcopy(mem_rate_in)
         cold_rate = copy.deepcopy(cold_rate_in)
@@ -185,8 +187,8 @@ class SystemAnalyzer():
             mem_idle_rate.append(mem_rate[i][idx_75_pert])
             
         # normalized wasted memory time
-        # mem_idle_rate = [x/mem_idle_rate[1]*100 for x in mem_idle_rate]
-        mem_idle_rate = [x*100 for x in mem_idle_rate]
+        mem_idle_rate = [x/mem_idle_rate[1]*100 for x in mem_idle_rate]
+        # mem_idle_rate = [x*100 for x in mem_idle_rate]
         cold_start_rate = [x*100 for x in cold_start_rate]
         # plt.scatter(cold_start_rate, mem_idle_rate,color='fuchsia')
         for i in range(len(cold_start_rate)):
@@ -199,6 +201,13 @@ class SystemAnalyzer():
         plt.ylim = [90, 130]
         plt.legend([str(x)+"-min" for x in legend])
         plt.show()
+
+    @classmethod
+    def save_result(cls, data_in, path, name):
+        data = copy.deepcopy(data_in)
+        data = np.array(data)
+        filename = os.path.join(path, name)
+        np.savetxt(filename, data, delimiter=',')
 
 class FixIntervalsimApp():
     def __init__(self, interval, func_series_in) -> None:
@@ -259,4 +268,79 @@ class FixIntervalsimApp():
             self.cold_start_rate = self.cold_start_count / (self.cold_start_count + self.warm_start_count)
             self.mem_waste_rate = self.idle_time / (self.idle_time + self.busy_time)
             
-                
+class FixIntervalsimSys():
+    def __init__(self, app_name_list) -> None:
+        # app properties
+        self.column_names = ["HashOwner",
+                             "HashApp",
+                             "state", 
+                             "status", 
+                             "memory", 
+                             "idle_timer",
+                             "never_launch",
+                             "idle_time",
+                             "busy_time", 
+                             "cold_start_count", 
+                             "warm_start_count"]
+        self.sys_monitor = pd.DataFrame(columns=self.column_names)
+        # self.sys_monitor[:] = 0
+        self.app_name_list = app_name_list
+        self.sys_monitor[self.column_names[:2]] = app_name_list
+        self.sys_monitor = self.sys_monitor.fillna(0)
+        
+        self.sys_monitor = self.sys_monitor.set_index(self.column_names[:2])
+        self.sys_monitor.loc[:, ("state", "status")] = False
+        self.sys_monitor.loc[:, "never_launch"] = True
+
+
+    def update(self, exec_now, interval):    
+        # update never launch----------------------------------
+        self.sys_monitor["never_launch"] = ~np.any([~self.sys_monitor["never_launch"].values, exec_now.astype(bool)], axis=0)
+        
+        # for those func stop running---------------------------
+        stop_funcs = ~exec_now.astype(bool)
+        self.sys_monitor.loc[stop_funcs, "status"] = False
+        idle_apps = np.all([self.sys_monitor["state"].values, ~self.sys_monitor["status"].values], axis=0) & stop_funcs
+        self.sys_monitor.loc[idle_apps, (["idle_time", "idle_timer"])] += 1
+        
+        # stop idle timeout app
+        timeout_apps = (self.sys_monitor["idle_timer"].values >= interval) & stop_funcs
+        self.sys_monitor.loc[timeout_apps, "state"] = False
+        
+        # invocation func ----------------------------------
+        invc_app = (exec_now - 2) == 0
+        # invc_app = (exec_now - 1) == 0
+        self.sys_monitor.loc[invc_app, "status"] = True
+        self.sys_monitor.loc[invc_app, "busy_time"] += 1
+        self.sys_monitor.loc[invc_app, "idle_timer"] = 0
+        
+        # warm start invocation func need to be count first
+        warm_app = np.all([self.sys_monitor["state"].values, self.sys_monitor["status"].values], axis=0) & invc_app
+        self.sys_monitor.loc[warm_app, "warm_start_count"] += 1
+        
+        # cold start invocation func count then (coz this will change state)
+        cold_app = np.all([~self.sys_monitor["state"].values, self.sys_monitor["status"].values], axis=0) & invc_app
+        self.sys_monitor.loc[cold_app, "state"] = True
+        self.sys_monitor.loc[cold_app, "cold_start_count"] += 1
+        
+        # running func ----------------------------------
+        invc_app = (exec_now - 1) == 0
+        self.sys_monitor.loc[invc_app, "busy_time"] += 1
+        self.sys_monitor.loc[invc_app, "idle_timer"] += 1
+        
+    def cal_cold_rate(self):
+        launch_func = ~self.sys_monitor["never_launch"].values
+        cold_start_count = self.sys_monitor.loc[launch_func, "cold_start_count"].values
+        warm_start_count = self.sys_monitor.loc[launch_func, "warm_start_count"].values
+        return np.divide(cold_start_count, cold_start_count + warm_start_count).tolist()
+    
+    def cal_mem_waste(self):
+        launch_func = ~self.sys_monitor["never_launch"].values
+        idle_time = self.sys_monitor.loc[launch_func, "idle_time"].values
+        busy_time = self.sys_monitor.loc[launch_func, "busy_time"].values
+        return np.divide(idle_time, idle_time+busy_time).tolist()
+    
+class GreedysimSys(FixIntervalsimSys):
+    def __init__(self, app_name_list) -> None:
+        super().__init__(app_name_list)
+        self.total_mem = 0

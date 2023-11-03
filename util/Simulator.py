@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 import ipdb
 from tqdm import tqdm, trange
-from util.Manager import BaselineManager, FixIntervalsimApp, SystemAnalyzer
+from util.Manager import BaselineManager, FixIntervalsimApp, FixIntervalsimSys, SystemAnalyzer
 
 
 def call_it(instance, name, arg):
@@ -151,16 +151,15 @@ class FaasSimulator():
 
     def prepare(self, i):
         print("[P_{}] Getting execution series...".format(i))
+        # exec_ = f"invocations_per_function_md.anon.d{i:02}.csv"
+        # if exec_ in self.data_loader.inv_files:
         exec_ = "execution_series_{}.csv".format(i)
         if exec_ in self.data_loader.exec_files:
             print("[P_{}] Loading execution series from CSV...".format(i))
-            # for i in trange(self.max_day):
             self.exe_raw = pd.read_csv(os.path.join(self.data_path, self.data_loader.exec_files[i-1])).set_index(["HashOwner", "HashApp", "HashFunction"]).sort_index()
+            # self.exe_raw[:] = self.exe_raw[:].values.astype(bool) # for raw dataset
         else:
             print("[P_{}] Generating series from dataset...".format(i))
-            # print("It can be PRETTY slow...But no worries we will save the result after finishing!")
-            # for i in trange(self.max_day):
-            # print(os.path.join(self.data_path, self.data_loader.inv_files[i-1]))
             self.inv_raw = pd.read_csv(os.path.join(self.data_path, self.data_loader.inv_files[i-1]))
             self.__gen_invoc_series(i)
         print("[P_{}] Series getting SUCCESS!".format(i))
@@ -196,3 +195,19 @@ class FaasSimulator():
         return [cold_rate, mem_rate]
         # ipdb.set_trace()
 
+    def run_sys(self, intv):
+        app_exe_raw = self.exe_raw.reset_index().groupby(["HashOwner", "HashApp"]).max().sort_index().iloc[:, 1:]
+        app_name_list = app_exe_raw.reset_index().iloc[:, :2].values
+        # app_name_list = np.vstack([[self.exe_raw.index.get_level_values(0).values, 
+        #                             self.exe_raw.index.get_level_values(1).values, 
+        #                             self.exe_raw.index.get_level_values(2).values]]).T 
+        
+        # ipdb.set_trace()
+        simSys = FixIntervalsimSys(app_name_list)
+        
+        for i in trange(self.day_len):
+            t = i + 1
+            exec_now = app_exe_raw[str(t)].values
+            simSys.update(exec_now, intv)
+
+        return [simSys.cal_cold_rate(), simSys.cal_mem_waste()]
