@@ -8,15 +8,18 @@ from multiprocessing import Process, Pool
 import ipdb
 from util.Manager import SystemAnalyzer
 
+intv_lst = [5, 10, 20, 30, 45, 60, 90, 120]
+# intv_lst = [5, 10, 20, 30]
+max_day = 12
+# max_day = 1
 def proc(i):
+    global intv_lst
     loader = DataLoader(path="dataset")
     loader.load_dataset(i)
     
     simulator = FaasSimulator(loader)
     simulator.prepare(i)
     
-    intv_lst = [10, 20, 50, 100, 150, 200]
-    # intv_lst = [10, 20]
     cold_rate_lst = [[] for _ in range(len(intv_lst))]
     mem_rate_lst = [[] for _ in range(len(intv_lst))]
     for idx, intv in enumerate(intv_lst):
@@ -24,7 +27,6 @@ def proc(i):
         cold_rate_lst[idx] = cold_rate
         mem_rate_lst[idx] = mem_rate
     return [cold_rate_lst, mem_rate_lst]
-    # return True
 
 
 print(".....................Starting.............................")
@@ -39,16 +41,16 @@ if __name__ == '__main__':
     
     result_lst = []
     pool = Pool(24)
-    result_lst = pool.map(proc, list(range(1, 13)))
+    result_lst = pool.map(proc, list(range(1, max_day+1)))
         # result_lst.append(result)
         
     pool.close()
     pool.join()
     
     # print(result_lst)
-    print("Simulation Finish.")
+    print("..................Simulation Finish.....................")
     
-    itv_len = 6
+    itv_len = len(intv_lst)
 
     cold_rate_data = [[] for _ in range(itv_len)]
     mem_rate_data = [[] for _ in range(itv_len)]
@@ -59,11 +61,8 @@ if __name__ == '__main__':
             mem_rate_data[j] += result_lst[i][1][j]
 
     plt.figure(1)
-    for i in range(itv_len): 
-        SystemAnalyzer.draw_cold_rate(cold_rate_data[i])
-    plt.show()
+    SystemAnalyzer.draw_cold_rate(cold_rate_data, legend=intv_lst)
+
         
     plt.figure(2)
-    for i in range(6): 
-        SystemAnalyzer.draw_mem_rate(mem_rate_data[i], cold_rate_data[i])
-    plt.show()        
+    SystemAnalyzer.draw_mem_rate(mem_rate_data, cold_rate_data, legend=intv_lst)      

@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import copy
 import ipdb
 
 class simFunction():
@@ -129,41 +130,75 @@ class SystemAnalyzer():
         pass
     
     @classmethod
-    def draw_cold_rate(cls, cold_rate):
+    def draw_cold_rate(cls, cold_rate_in, legend):
         """draw cold rate vs cdf figure
 
         Args:
             cold_rate (list): a list cold rates for all apps
         """
-        cold_rate.sort() # ascending order
+        
+        cold_rate = copy.deepcopy(cold_rate_in)
         rates = [x * 0.01 for x in range(101)] # cold rate percentage
-        cdf_list = [0 for _ in range(101)]
-        ptr = 0
-        for idx, rate in enumerate(rates):
-            while ptr < len(cold_rate) and cold_rate[ptr] <= rate: 
-                ptr += 1
-                
-            cdf_list[idx] = ptr * 1.0 / len(cold_rate) # cdf
-    
-        plt.plot(rates, cdf_list)
+        for i in range(len(cold_rate)):
+            cold_rate[i].sort() # ascending order
+            cdf_list = [0 for _ in range(101)]
+            ptr = 0
+            for idx, rate in enumerate(rates):
+                while ptr < len(cold_rate[i]) and cold_rate[i][ptr] <= rate: 
+                    ptr += 1
+                    
+                cdf_list[idx] = ptr * 1.0 / len(cold_rate[i]) # cdf
+        
+            plt.plot([x*100 for x in rates], cdf_list)
+        
+        plt.axhline(y=0.75, color='darkgray', linestyle='-') 
+        plt.xlabel("App Cold Start (%)")
+        plt.ylabel("CDF")
+        plt.xlim = [0, 105]
+        plt.ylim = [0, 1.05]
+        plt.grid()
+        plt.legend([str(x)+"-min" for x in legend])
+        plt.show()
 
     @classmethod
-    def draw_mem_rate(cls, mem_rate, cold_rate):
+    def draw_mem_rate(cls, mem_rate_in, cold_rate_in, legend):
         """draw memory wasted rate at 3rd quartile app cold start 
 
         Args:
             mem_rate (list): a list of wasted memory for all apps
             cold_rate (list): a list cold rates for all apps
         """
-        sort_idx = np.argsort(np.array(cold_rate))
-        cold_rate = np.array(cold_rate)[sort_idx]
-        mem_rate = np.array(mem_rate)[sort_idx]
+        mem_idle_rate = []
+        cold_start_rate = []
+        assert len(mem_rate) == len(cold_rate)
+        assert len(mem_rate) > 1
         
-        idx_75_pert = int(len(cold_rate) * 0.75)
-        cold_start_rate = cold_rate[idx_75_pert]
-        mem_idle_rate = mem_rate[idx_75_pert]
-        
-        plt.scatter(cold_start_rate, mem_idle_rate)
+        mem_rate = copy.deepcopy(mem_rate_in)
+        cold_rate = copy.deepcopy(cold_rate_in)
+        for i in range(len(mem_rate)):
+            sort_idx = np.argsort(np.array(cold_rate[i]))
+            cold_rate[i] = np.array(cold_rate[i])[sort_idx]
+            mem_rate[i] = np.array(mem_rate[i])[sort_idx]
+            
+            idx_75_pert = int(len(cold_rate[i]) * 0.75)
+            cold_start_rate.append(cold_rate[i][idx_75_pert])
+            mem_idle_rate.append(mem_rate[i][idx_75_pert])
+            
+        # normalized wasted memory time
+        # mem_idle_rate = [x/mem_idle_rate[1]*100 for x in mem_idle_rate]
+        mem_idle_rate = [x*100 for x in mem_idle_rate]
+        cold_start_rate = [x*100 for x in cold_start_rate]
+        # plt.scatter(cold_start_rate, mem_idle_rate,color='fuchsia')
+        for i in range(len(cold_start_rate)):
+            plt.scatter(cold_start_rate[i], mem_idle_rate[i])
+        plt.plot(cold_start_rate, mem_idle_rate, color='fuchsia')
+        plt.axhline(y=100, color='darkgray', linestyle='-')
+        plt.xlabel("3rd Quartile App Cold Start (%)")
+        plt.ylabel("Normalized Wasted Memory Time (%)")
+        plt.xlim = [0, 100]
+        plt.ylim = [90, 130]
+        plt.legend([str(x)+"-min" for x in legend])
+        plt.show()
 
 class FixIntervalsimApp():
     def __init__(self, interval, func_series_in) -> None:
