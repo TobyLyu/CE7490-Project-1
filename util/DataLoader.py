@@ -103,13 +103,13 @@ class DataLoader():
         # filter out app/func names that have both mem and dur properties
         # for i in range(self.max_day):
         this_day = [[] for _ in range(len(self.dur_raw))]
-        this_mem_raw = self.mem_raw.set_index(["HashOwner", "HashApp"])
+        this_mem_raw = self.mem_raw.drop_duplicates(subset=["HashOwner", "HashApp"]).set_index(["HashOwner", "HashApp"]) # remove duplicate info
         # print("Processing Day{} data...".format(i+1))
         with tqdm(total=len(self.dur_raw)) as pbar:
             for dur_idx, dur_row in self.dur_raw.iterrows():
                 pbar.update(1)
                 try:
-                    mem_row = this_mem_raw.loc[dur_row["HashOwner"]].loc[dur_row["HashApp"]]
+                    mem_row = this_mem_raw.loc[dur_row["HashOwner"], dur_row["HashApp"]]
                     
                     # calculate duration properties
                     try:      
@@ -147,7 +147,7 @@ class DataLoader():
                     continue
             this_day = list(filter(None, this_day)) # filter out unused entry
             # full_data += this_day
-        self.data_info = pd.DataFrame(this_day, columns=self.data_info_col).drop_duplicates(subset=self.data_info_col[:4])
+        self.data_info = pd.DataFrame(this_day, columns=self.data_info_col).drop_duplicates(subset=self.data_info_col[:4]) # remove duplicate info
         
         # self.data_info = self.data_info.pivot_table(["MemAve", "MemProb", "DurAve", "DurProb"], index=["Day", "HashOwner", "HashApp", "HashFunction"], aggfunc="mean")
         

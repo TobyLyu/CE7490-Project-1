@@ -21,7 +21,9 @@ def call_it(instance, name, arg):
 class FaasSimulator():
     def __init__(self, data_loader) -> None:
         self.data_loader = data_loader
-        self.data_info = data_loader.data_info
+        # self.data_info = data_loader.data_info
+        self.dur_info = data_loader.data_info.sort_index()[["DurAve", "DurProb"]]
+        self.mem_info = data_loader.data_info.groupby(["Day", "HashOwner", "HashApp"]).max().sort_index()[["MemAve", "MemProb"]]
         self.max_day = data_loader.max_day
         self.data_path = data_loader.data_path
         self.day_id = data_loader.day_id
@@ -49,8 +51,8 @@ class FaasSimulator():
         [owner_id, app_id, func_id] = ID_arr
         # func_properties = self.data_info.loc[day].loc[owner_id].loc[app_id].loc[func_id]
         # func_properties = self.data_info.loc[day, owner_id, app_id, func_id]
-        DurAve = self.data_info.loc[(str(self.day_id), owner_id, app_id, func_id), "DurAve"]
-        DurProb = self.data_info.loc[(str(self.day_id), owner_id, app_id, func_id), "DurProb"]
+        DurAve = self.dur_info.loc[(str(self.day_id), owner_id, app_id, func_id), "DurAve"]
+        DurProb = self.dur_info.loc[(str(self.day_id), owner_id, app_id, func_id), "DurProb"]
         rand_dur = random.choices(DurAve, weights=DurProb, k=1)[0] / 60000.0
         
         return rand_dur
@@ -67,13 +69,15 @@ class FaasSimulator():
         """
         
         [owner_id, app_id] = ID_arr
-        func_properties = self.data_info.loc[(str(self.day_id), owner_id, app_id)].iloc[0, :]
-        # ipdb.set_trace()
+
+            
+        MemAve = self.mem_info.loc[(str(self.day_id), owner_id, app_id), "MemAve"]
+        MemProb = self.mem_info.loc[(str(self.day_id), owner_id, app_id), "MemProb"]
         
-        MemAve = func_properties["MemAve"]
-        MemProb = func_properties["MemProb"]
         rand_mem_alloc = random.choices(MemAve, weights=MemProb, k=1)[0]
         
+        if type(rand_mem_alloc) == dict:
+            ipdb.set_trace()
         return int(rand_mem_alloc)
     
     def __gen_invoc_series(self, save=True):
@@ -93,21 +97,20 @@ class FaasSimulator():
         with tqdm(total=len(func_name)) as pbar:
             for func_ in func_name:
                 pbar.update(1)
+                
+                try: # skip rows without memory/duration
+                    dur = self.__generate_func_dur(ID_arr=func_)
+                    mem = self.__generate_app_mem(ID_arr=func_[:2])
+                except KeyError:
+                    inv_tmp = inv_tmp.drop(index=(func_[0], func_[1], func_[2]))
+                    continue # we do not have info for this func               
+                
                 func_invc_series = inv_tmp.loc[(func_[0], func_[1], func_[2])].values
-                # print(func_invc_series)
-                # ipdb.set_trace()
                 for t, state in enumerate(func_invc_series):
                     if state:
-                        try:
-                            dur = self.__generate_func_dur(ID_arr=func_)
-                            mem = self.__generate_app_mem(ID_arr=func_[:2])
-                            if not dur: # some duration is unrepresentative in the dataset (dur = 0). we set it to 0.01min
-                                dur = 0.01
-                                # continue
-                        except KeyError:
-                            inv_tmp.loc[(func_[0], func_[1], func_[2]), :] = 0
-                            continue # we do not have info for this func
-                        # ipdb.set_trace()   
+                        dur = self.__generate_func_dur(ID_arr=func_)
+                        if not dur:
+                            dur = 0.01                        
                         func_start_time = max(0.01, t + 1 - dur)
                         exec_time = np.ceil(np.arange(func_start_time, t + 1, 1)).astype(int).astype(str) # the duration of this exec
                         if dur <= 1: # within 1min: num of invocation+1
@@ -116,42 +119,13 @@ class FaasSimulator():
                             inv_tmp.loc[(func_[0], func_[1], func_[2]), exec_time[0]] = state + 1
                             inv_tmp.loc[(func_[0], func_[1], func_[2]), (x for x in exec_time[1:])] = 1
         
-        # for j in trange(self.day_len):
-        #     exec_func_name = func_name[inv_tmp.loc[:, str(j+1)].values.astype(bool)]
-        #     # with tqdm(total=len(exec_func_name)) as pbar:
-        #     for func_ in exec_func_name:
-        #         # pbar.update(1)
-        #         try:
-        #             dur = self.__generate_func_dur(day=str(i+1), ID_arr=func_)
-        #         except KeyError:
-        #             inv_tmp.loc[(func_[0], func_[1], func_[2]), str(j+1)] = 0
-        #             continue # we do not have info for this func
-        #         func_start_time = max(0.01, j + 1 - dur)
-        #         for idx, tick in enumerate(np.ceil(np.arange(func_start_time, j+1, 1)).astype(int)):
-        #             inv_tmp.loc[(func_[0], func_[1], func_[2]), str(tick)] = self.invc_flag[int(bool(idx))]
         
         self.exe_raw = inv_tmp.sort_index()
         if save == True:
             output_path = os.path.join(self.data_path, "execution_series_{}.csv".format(self.day_id))
             inv_tmp.to_csv(output_path)
 
-            
 
-    
-    # def exec(self):
-    #     for func in self.func_lst:
-    #         ID_arr = func["HashOwner", "HashApp", "HashFunction"].values
-    #         rand_mem = self.__generate_app_mem(self.day, ID_arr)
-    #         self.baseM.register_func(ID_arr, rand_mem)
-    #         # self.owner_dict[ID_arr[0]].app_dict[ID_arr[1]].func_dict[ID_arr[2]].step()
-            
-    # def step(self):
-    #     for owner in self.owner_dict:
-    #         owner.step()
-            
-    # def update(self):
-    #     for owner in self.owner_dict:
-    #         owner.update()
 
     def prepare(self):
         print("[P_{}] Getting execution series...".format(self.day_id))
@@ -160,7 +134,7 @@ class FaasSimulator():
         exec_ = "execution_series_{}.csv".format(self.day_id)
         if exec_ in self.data_loader.exec_files:
             print("[P_{}] Loading execution series from CSV...".format(self.day_id))
-            self.exe_raw = pd.read_csv(os.path.join(self.data_path, self.data_loader.exec_files[self.day_id-1])).set_index(["HashOwner", "HashApp", "HashFunction"]).sort_index()
+            self.exe_raw = pd.read_csv(os.path.join(self.data_path, exec_)).set_index(["HashOwner", "HashApp", "HashFunction"]).sort_index()
             # self.exe_raw[:] = self.exe_raw[:].values.astype(bool) # for raw dataset
         else:
             print("[P_{}] Generating series from dataset...".format(self.day_id))
@@ -170,14 +144,9 @@ class FaasSimulator():
         
         
     def run_app(self, intv):
-        # [intv, i] = arg
-        # cold_start_rate_lst = []
-        # wasted_mem_rate_lst = []
-        # for intv in [10, 20, 50, 100, 150, 200]:
-        # for intv in [10, 20]:
         cold_rate = []
         mem_rate = []
-        # for k in range(self.max_day):
+
         owner_lst = self.exe_raw.index.get_level_values(0).unique().values
         with tqdm(total=len(owner_lst)) as pbar:
             for owner in owner_lst:
@@ -199,27 +168,27 @@ class FaasSimulator():
         return [cold_rate, mem_rate]
         # ipdb.set_trace()
 
-    def run_sys(self, arg):
+    def run_sys(self, arg_lst):
         app_exe_raw = self.exe_raw.reset_index().groupby(["HashOwner", "HashApp"]).max().sort_index().iloc[:, 1:]
         app_name_list = app_exe_raw.reset_index().iloc[:, :2].values
-        app_mem_list = [self.__generate_app_mem(app) for app in app_name_list]
-        
-        # # fixed interval strategy
-        # simSys = FixIntervalsimSys(app_name_list)
-        # simSys.keep_alive_interval = arg
-        # for i in trange(self.day_len):
-        #     t = i + 1
-        #     exec_now = app_exe_raw[str(t)].values
-        #     simSys.update(exec_now)
+        app_mem_list = np.array([self.__generate_app_mem(app) for app in app_name_list])
 
-        # cache strategy
-        simSys = GreedysimSys(app_name_list, app_mem_list)
-        simSys.total_mem = arg
-        for i in trange(self.day_len):
-            t = i + 1
-            exec_now = app_exe_raw[str(t)].values
-            if not simSys.update(exec_now):
-                print("System Memory Overflow!")
-                break
+
+        cold_rate_lst = []
+        mem_rate_lst = []
+        for idx, arg in enumerate(arg_lst):
+            simSys = GreedysimSys(app_name_list, app_mem_list)
+            simSys.total_mem = arg
+            
+            # simSys = FixIntervalsimSys(app_name_list)
+            # simSys.keep_alive_interval = arg
+            for i in trange(self.day_len):
+                t = i + 1
+                exec_now = app_exe_raw[str(t)].values
+                if not simSys.update(exec_now):
+                    print("System Memory Overflow!")
+                    break
+            cold_rate_lst.append(simSys.cal_cold_rate())
+            mem_rate_lst.append(simSys.cal_mem_waste())
         
-        return [simSys.cal_cold_rate(), simSys.cal_mem_waste()]
+        return [cold_rate_lst, mem_rate_lst]

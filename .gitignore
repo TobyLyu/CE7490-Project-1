@@ -2,5 +2,6 @@ dataset/*
 small_sample/*
 full_sample/*
 result/*
-*.pyc
+*pyc
 *.docx
+util/*38.pyc

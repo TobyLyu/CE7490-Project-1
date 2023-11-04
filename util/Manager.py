@@ -256,13 +256,24 @@ class FixIntervalsimSys():
     def cal_cold_rate(self):
         launch_func = ~self.sys_monitor["never_launch"].values
         cold_start_count = self.sys_monitor.loc[launch_func, "cold_start_count"].values
+        # if not len(cold_start_count): cold_start_count = np.array([0])
         warm_start_count = self.sys_monitor.loc[launch_func, "warm_start_count"].values
+        # if not len(warm_start_count): warm_start_count = np.array([0])
+        valid_idx = (cold_start_count | warm_start_count).astype(bool)
+        cold_start_count = cold_start_count[valid_idx]
+        warm_start_count = warm_start_count[valid_idx]
         return np.divide(cold_start_count, cold_start_count + warm_start_count).tolist()
     
     def cal_mem_waste(self):
         launch_func = ~self.sys_monitor["never_launch"].values
+        # ipdb.set_trace()
         idle_time = self.sys_monitor.loc[launch_func, "idle_time"].values
+        # if not len(idle_time): idle_time = np.array([0])
         busy_time = self.sys_monitor.loc[launch_func, "busy_time"].values
+        valid_idx = (idle_time | busy_time).astype(bool)
+        busy_time = busy_time[valid_idx]
+        idle_time = idle_time[valid_idx]
+        # if not len(busy_time): busy_time = np.array([0])
         return np.divide(idle_time, idle_time+busy_time).tolist()
     
 class GreedysimSys(FixIntervalsimSys):
@@ -294,19 +305,32 @@ class GreedysimSys(FixIntervalsimSys):
     def update(self, exec_now):
         self.system_clock += 1
         # update never launch----------------------------------
-        self.sys_monitor["never_launch"] = ~np.any([~self.sys_monitor["never_launch"].values, exec_now.astype(bool)], axis=0)
         
         # calculate newly need memory --------------------------------
-        invc_app = (exec_now > 1)
+        invc_app = (exec_now > 1)        
         new_app = ~self.sys_monitor["state"].values & invc_app
-        needed_mem = self.total_mem - self.current_mem - np.sum(self.app_mem_list[new_app])
-        idle_app = self.sys_monitor["state"].values & self.sys_monitor["status"].values & ~invc_app # previous idle and current not to launch
-        if needed_mem > np.sum(self.sys_monitor.loc[idle_app, "memory"].values): # system overflow
-            return False
+        # ipdb.set_trace()
+        needed_mem = np.sum(self.app_mem_list[new_app])
+        idle_app = self.sys_monitor["state"].values & ~invc_app # previous idle and current not to launch
+        left_mem = np.sum(self.sys_monitor.loc[idle_app, "memory"].values) + (self.total_mem - self.current_mem)
+        if needed_mem > left_mem: # system overflow
+            new_app_mem = np.zeros(len(invc_app))
+            new_app_mem[new_app] = self.app_mem_list[new_app]
+            for app in np.argsort(new_app_mem)[::-1]:
+                if needed_mem < left_mem:
+                    break
+                exec_now[app] = 0
+                needed_mem -= new_app_mem[app]
+            # return False
         
+        invc_app = (exec_now > 1)   
+        idle_app = self.sys_monitor["state"].values & ~invc_app # previous idle and current not to launch
+        self.sys_monitor["never_launch"] = ~np.any([~self.sys_monitor["never_launch"].values, exec_now.astype(bool)], axis=0)
+        
+
         # invocation func ----------------------------------
-        # warm start
-        warm_app = self.sys_monitor.loc[invc_app, "state"] & invc_app
+        # warm start        
+        warm_app = self.sys_monitor["state"].values & invc_app
         self.sys_monitor.loc[warm_app, "warm_start_count"] += (exec_now[warm_app] - 1)
 
         # cold start invocation func count then (coz this will change state)
@@ -322,12 +346,15 @@ class GreedysimSys(FixIntervalsimSys):
         self.sys_monitor.loc[invc_app, "priority"] = self.system_clock + np.divide(self.sys_monitor.loc[invc_app, "frequency"].values, self.app_mem_list[invc_app])# update priority
         
         # Engage management strategy -------------------------------
-        for app in self.sys_monitor.loc[idle_app].reset_index().sort_values(by=['priority']):
-            if needed_mem <= 0:
-                break
-            self.sys_monitor.loc[(app["HashOwner"].values, app["HashApp"].values), "state"] = False
-            needed_mem -= self.sys_monitor.loc[(app["HashOwner"].values, app["HashApp"].values), "memory"].values
-            self.sys_monitor.loc[(app["HashOwner"].values, app["HashApp"].values), "memory"] = 0 
+        needed_mem -= (self.total_mem - self.current_mem)
+        if needed_mem > 0:
+            for app in self.sys_monitor.loc[idle_app, :].reset_index().sort_values(by=['priority'])[["HashOwner", "HashApp"]].values:
+                # ipdb.set_trace()
+                if needed_mem <= 0:
+                    break
+                self.sys_monitor.loc[(app[0], app[1]), "state"] = False
+                needed_mem -= self.sys_monitor.loc[(app[0], app[1]), "memory"]
+                self.sys_monitor.loc[(app[0], app[1]), "memory"] = 0 
             
         
         # update idle/busy time, system memory consumption
@@ -336,10 +363,11 @@ class GreedysimSys(FixIntervalsimSys):
         self.sys_monitor.loc[idle_apps, (["idle_time", "idle_timer"])] += 1 
         
         # for thos func is running running and app is running
-        invc_app = (exec_now == 1) 
+        invc_app = (exec_now == 1) & self.sys_monitor["state"].values
         self.sys_monitor.loc[invc_app, "busy_time"] += 1
         self.sys_monitor.loc[invc_app, "idle_timer"] = 0
 
-        self.current_mem = self.np.sum(self.sys_monitor["memory"].values)
+        self.current_mem = np.sum(self.sys_monitor["memory"].values)
+        # print(self.current_mem)
         
         return True

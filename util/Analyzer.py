@@ -9,7 +9,7 @@ class SystemAnalyzer():
         pass
     
     @classmethod
-    def draw_cold_rate(cls, cold_rate_in, legend):
+    def draw_cold_rate(cls, cold_rate_in, legend, unit):
         """draw cold rate vs cdf figure
 
         Args:
@@ -36,11 +36,11 @@ class SystemAnalyzer():
         plt.xlim = [0, 105]
         plt.ylim = [0, 1.05]
         plt.grid()
-        plt.legend([str(x)+"-min" for x in legend])
+        plt.legend([str(x)+"-"+unit for x in legend])
         plt.show()
 
     @classmethod
-    def draw_mem_rate(cls, mem_rate_in, cold_rate_in, legend):
+    def draw_mem_rate(cls, mem_rate_in, cold_rate_in, legend, unit):
         """draw memory wasted rate at 3rd quartile app cold start 
 
         Args:
@@ -76,7 +76,7 @@ class SystemAnalyzer():
         plt.ylabel("Normalized Wasted Memory Time (%)")
         plt.xlim = [0, 100]
         plt.ylim = [90, 130]
-        plt.legend([str(x)+"-min" for x in legend])
+        plt.legend([str(x)+"-"+unit for x in legend])
         plt.show()
 
     @classmethod
