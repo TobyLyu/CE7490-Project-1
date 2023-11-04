@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 import ipdb
 from tqdm import tqdm, trange
-from util.Manager import FixIntervalsimApp, FixIntervalsimSys
+from util.Manager import FixIntervalsimApp, FixIntervalsimSys, GreedysimSys
 
 
 def call_it(instance, name, arg):
@@ -24,6 +24,7 @@ class FaasSimulator():
         self.data_info = data_loader.data_info
         self.max_day = data_loader.max_day
         self.data_path = data_loader.data_path
+        self.day_id = data_loader.day_id
         self.inv_raw = []
         self.exe_raw = []
         self.system_clock = [0, 0] # [day, sec]
@@ -34,7 +35,7 @@ class FaasSimulator():
         
         # self.baseM = BaselineManager(data_info=self.data_info, owner_dict=self.owner_dict)
     
-    def __generate_func_dur(self, day, ID_arr):
+    def __generate_func_dur(self, ID_arr):
         """generate randomly function runtime usage based on dataset information
 
         Args:
@@ -48,26 +49,26 @@ class FaasSimulator():
         [owner_id, app_id, func_id] = ID_arr
         # func_properties = self.data_info.loc[day].loc[owner_id].loc[app_id].loc[func_id]
         # func_properties = self.data_info.loc[day, owner_id, app_id, func_id]
-        DurAve = self.data_info.loc[(day, owner_id, app_id, func_id), "DurAve"]
-        DurProb = self.data_info.loc[(day, owner_id, app_id, func_id), "DurProb"]
+        DurAve = self.data_info.loc[(str(self.day_id), owner_id, app_id, func_id), "DurAve"]
+        DurProb = self.data_info.loc[(str(self.day_id), owner_id, app_id, func_id), "DurProb"]
         rand_dur = random.choices(DurAve, weights=DurProb, k=1)[0] / 60000.0
         
         return rand_dur
 
         
-    def __generate_app_mem(self, day, ID_arr):
+    def __generate_app_mem(self, ID_arr):
         """generate randomly app memory allocation based on dataset information
 
         Args:
-            day (str): day of running
-            ID_arr (ndarray): ID in a array ([OwnerID, AppID, FunctionID])
+            ID_arr (ndarray): ID in a array ([OwnerID, AppID])
 
         Returns:
             int: randomly allocated memory
         """
         
-        [owner_id, app_id, func_id] = ID_arr
-        func_properties = self.data_info.loc[day, owner_id, app_id, func_id]
+        [owner_id, app_id] = ID_arr
+        func_properties = self.data_info.loc[(str(self.day_id), owner_id, app_id)].iloc[0, :]
+        # ipdb.set_trace()
         
         MemAve = func_properties["MemAve"]
         MemProb = func_properties["MemProb"]
@@ -75,7 +76,7 @@ class FaasSimulator():
         
         return int(rand_mem_alloc)
     
-    def __gen_invoc_series(self, i, save=True):
+    def __gen_invoc_series(self, save=True):
         # i = arg[0]
         # save = arg[1]
         invoc_info_col = ["HashOwner", "HashApp", "HashFunction"]
@@ -98,7 +99,8 @@ class FaasSimulator():
                 for t, state in enumerate(func_invc_series):
                     if state:
                         try:
-                            dur = self.__generate_func_dur(day=str(i), ID_arr=func_)
+                            dur = self.__generate_func_dur(ID_arr=func_)
+                            mem = self.__generate_app_mem(ID_arr=func_[:2])
                             if not dur: # some duration is unrepresentative in the dataset (dur = 0). we set it to 0.01min
                                 dur = 0.01
                                 # continue
@@ -130,7 +132,7 @@ class FaasSimulator():
         
         self.exe_raw = inv_tmp.sort_index()
         if save == True:
-            output_path = os.path.join(self.data_path, "execution_series_{}.csv".format(i))
+            output_path = os.path.join(self.data_path, "execution_series_{}.csv".format(self.day_id))
             inv_tmp.to_csv(output_path)
 
             
@@ -151,23 +153,23 @@ class FaasSimulator():
     #     for owner in self.owner_dict:
     #         owner.update()
 
-    def prepare(self, i):
-        print("[P_{}] Getting execution series...".format(i))
+    def prepare(self):
+        print("[P_{}] Getting execution series...".format(self.day_id))
         # exec_ = f"invocations_per_function_md.anon.d{i:02}.csv"
         # if exec_ in self.data_loader.inv_files:
-        exec_ = "execution_series_{}.csv".format(i)
+        exec_ = "execution_series_{}.csv".format(self.day_id)
         if exec_ in self.data_loader.exec_files:
-            print("[P_{}] Loading execution series from CSV...".format(i))
-            self.exe_raw = pd.read_csv(os.path.join(self.data_path, self.data_loader.exec_files[i-1])).set_index(["HashOwner", "HashApp", "HashFunction"]).sort_index()
+            print("[P_{}] Loading execution series from CSV...".format(self.day_id))
+            self.exe_raw = pd.read_csv(os.path.join(self.data_path, self.data_loader.exec_files[self.day_id-1])).set_index(["HashOwner", "HashApp", "HashFunction"]).sort_index()
             # self.exe_raw[:] = self.exe_raw[:].values.astype(bool) # for raw dataset
         else:
-            print("[P_{}] Generating series from dataset...".format(i))
-            self.inv_raw = pd.read_csv(os.path.join(self.data_path, self.data_loader.inv_files[i-1]))
-            self.__gen_invoc_series(i)
-        print("[P_{}] Series getting SUCCESS!".format(i))
+            print("[P_{}] Generating series from dataset...".format(self.day_id))
+            self.inv_raw = pd.read_csv(os.path.join(self.data_path, self.data_loader.inv_files[self.day_id-1]))
+            self.__gen_invoc_series()
+        print("[P_{}] Series getting SUCCESS!".format(self.day_id))
         
         
-    def run(self, intv):
+    def run_app(self, intv):
         # [intv, i] = arg
         # cold_start_rate_lst = []
         # wasted_mem_rate_lst = []
@@ -197,19 +199,27 @@ class FaasSimulator():
         return [cold_rate, mem_rate]
         # ipdb.set_trace()
 
-    def run_sys(self, intv):
+    def run_sys(self, arg):
         app_exe_raw = self.exe_raw.reset_index().groupby(["HashOwner", "HashApp"]).max().sort_index().iloc[:, 1:]
         app_name_list = app_exe_raw.reset_index().iloc[:, :2].values
-        # app_name_list = np.vstack([[self.exe_raw.index.get_level_values(0).values, 
-        #                             self.exe_raw.index.get_level_values(1).values, 
-        #                             self.exe_raw.index.get_level_values(2).values]]).T 
+        app_mem_list = [self.__generate_app_mem(app) for app in app_name_list]
         
-        # ipdb.set_trace()
-        simSys = FixIntervalsimSys(app_name_list)
-        
+        # # fixed interval strategy
+        # simSys = FixIntervalsimSys(app_name_list)
+        # simSys.keep_alive_interval = arg
+        # for i in trange(self.day_len):
+        #     t = i + 1
+        #     exec_now = app_exe_raw[str(t)].values
+        #     simSys.update(exec_now)
+
+        # cache strategy
+        simSys = GreedysimSys(app_name_list, app_mem_list)
+        simSys.total_mem = arg
         for i in trange(self.day_len):
             t = i + 1
             exec_now = app_exe_raw[str(t)].values
-            simSys.update(exec_now, intv)
-
+            if not simSys.update(exec_now):
+                print("System Memory Overflow!")
+                break
+        
         return [simSys.cal_cold_rate(), simSys.cal_mem_waste()]

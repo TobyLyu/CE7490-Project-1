@@ -14,6 +14,7 @@ class DataLoader():
         self.exec_ = False
         self.exec_files = []
         self.max_day = 0
+        self.day_id = 1
         self.data_info_col = ["Day", "HashOwner", "HashApp", "HashFunction", "MemAve", "MemProb", "DurAve", "DurProb"]
         self.data_info = pd.DataFrame({"Day":[],
                                        "HashOwner":[], 
@@ -159,6 +160,7 @@ class DataLoader():
 
     
     def load_dataset(self, i) -> None:
+        self.day_id = i
         """load all completed dataset in the folder
         """
         

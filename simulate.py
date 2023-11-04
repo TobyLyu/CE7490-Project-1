@@ -8,8 +8,10 @@ from multiprocessing import Process, Pool
 import ipdb
 from util.Analyzer import SystemAnalyzer
 
-# intv_lst = [5, 10, 20, 30, 45, 60, 90, 120, 1440]
-intv_lst = [1, 2, 4, 5, 6, 8, 10, 20, 30, 45, 60, 90, 120, 1440]
+arg_lst = [i*8*1024 for i in [4, 8, 18, 32, 64, 128]]
+
+# arg_lst = [5, 10, 20, 30, 45, 60, 90, 120, 1440]
+# intv_lst = [1, 2, 4, 5, 6, 8, 10, 20, 30, 45, 60, 90, 120, 1440]
 # intv_lst = [5, 10, 20, 30]
 max_day = 12
 # max_day = 1
@@ -17,17 +19,17 @@ max_day = 12
 
 # process for fixed-interval strategy
 def proc(i):
-    global intv_lst
+    global arg_lst
     loader = DataLoader(path="dataset")
     loader.load_dataset(i)
     
     simulator = FaasSimulator(loader)
-    simulator.prepare(i)
+    simulator.prepare()
     
-    cold_rate_lst = [[] for _ in range(len(intv_lst))]
-    mem_rate_lst = [[] for _ in range(len(intv_lst))]
-    for idx, intv in enumerate(intv_lst):
-        [cold_rate, mem_rate] = simulator.run_sys(intv)
+    cold_rate_lst = [[] for _ in range(len(arg_lst))]
+    mem_rate_lst = [[] for _ in range(len(arg_lst))]
+    for idx, arg in enumerate(arg_lst):
+        [cold_rate, mem_rate] = simulator.run_sys(arg)
         cold_rate_lst[idx] = cold_rate
         mem_rate_lst[idx] = mem_rate
     return [cold_rate_lst, mem_rate_lst]

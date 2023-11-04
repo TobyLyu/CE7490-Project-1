@@ -208,25 +208,13 @@ class FixIntervalsimSys():
         self.sys_monitor = self.sys_monitor.set_index(self.column_names[:2])
         self.sys_monitor.loc[:, ("state", "status")] = False
         self.sys_monitor.loc[:, "never_launch"] = True
+        self.keep_alive_interval = 0
 
 
-    def update(self, exec_now, interval):    
+    def update(self, exec_now):    
         # update never launch----------------------------------
         self.sys_monitor["never_launch"] = ~np.any([~self.sys_monitor["never_launch"].values, exec_now.astype(bool)], axis=0)
-        
-        # stop idle timeout app --------------------------------
-        timeout_apps = self.sys_monitor["idle_timer"].values >= interval
-        self.sys_monitor.loc[timeout_apps, "state"] = False
-        self.sys_monitor.loc[timeout_apps, "idle_timer"] = 0
-        
-        # for those func stop running---------------------------
-        stop_funcs = ~exec_now.astype(bool)
-        self.sys_monitor.loc[stop_funcs, "status"] = False
-        
-        # if app is running
-        idle_apps = np.all([self.sys_monitor["state"].values, ~self.sys_monitor["status"].values], axis=0) & stop_funcs
-        self.sys_monitor.loc[idle_apps, (["idle_time", "idle_timer"])] += 1 
-        
+
         # invocation func ----------------------------------
         invc_app = (exec_now > 1)
         # invc_app = (exec_now - 2) == 0
@@ -245,10 +233,25 @@ class FixIntervalsimSys():
         self.sys_monitor.loc[cold_app, "cold_start_count"] += 1
         self.sys_monitor.loc[cold_app, "warm_start_count"] += (exec_now[cold_app] - 2) # -2 is one for flag, one for cold start
         
+        # stop idle timeout app --------------------------------
+        timeout_apps = self.sys_monitor["idle_timer"].values >= self.keep_alive_interval
+        self.sys_monitor.loc[timeout_apps, "state"] = False
+        self.sys_monitor.loc[timeout_apps, "idle_timer"] = 0
+        
+        # for those func stop running---------------------------
+        stop_funcs = ~exec_now.astype(bool)
+        self.sys_monitor.loc[stop_funcs, "status"] = False
+        
+        # if app is running
+        idle_apps = np.all([self.sys_monitor["state"].values, ~self.sys_monitor["status"].values], axis=0) & stop_funcs
+        self.sys_monitor.loc[idle_apps, (["idle_time", "idle_timer"])] += 1 
+        
         # running func ----------------------------------
         invc_app = (exec_now == 1) 
         self.sys_monitor.loc[invc_app, "busy_time"] += 1
         self.sys_monitor.loc[invc_app, "idle_timer"] = 0
+        
+        return True
         
     def cal_cold_rate(self):
         launch_func = ~self.sys_monitor["never_launch"].values
@@ -263,9 +266,11 @@ class FixIntervalsimSys():
         return np.divide(idle_time, idle_time+busy_time).tolist()
     
 class GreedysimSys(FixIntervalsimSys):
-    def __init__(self, app_name_list) -> None:
+    def __init__(self, app_name_list, app_mem_list) -> None:
         super().__init__(app_name_list)
         self.total_mem = 0
+        self.current_mem = 0
+        self.system_clock = 0
         self.column_names = ["HashOwner",
                             "HashApp",
                             "state", 
@@ -281,3 +286,60 @@ class GreedysimSys(FixIntervalsimSys):
                             "clock",
                             "frequency"]
         self.sys_monitor["priority"] = 0
+        self.sys_monitor["clock"] = 0
+        self.sys_monitor["frequency"] = 0
+        
+        self.app_mem_list = app_mem_list     
+        
+    def update(self, exec_now):
+        self.system_clock += 1
+        # update never launch----------------------------------
+        self.sys_monitor["never_launch"] = ~np.any([~self.sys_monitor["never_launch"].values, exec_now.astype(bool)], axis=0)
+        
+        # calculate newly need memory --------------------------------
+        invc_app = (exec_now > 1)
+        new_app = ~self.sys_monitor["state"].values & invc_app
+        needed_mem = self.total_mem - self.current_mem - np.sum(self.app_mem_list[new_app])
+        idle_app = self.sys_monitor["state"].values & self.sys_monitor["status"].values & ~invc_app # previous idle and current not to launch
+        if needed_mem > np.sum(self.sys_monitor.loc[idle_app, "memory"].values): # system overflow
+            return False
+        
+        # invocation func ----------------------------------
+        # warm start
+        warm_app = self.sys_monitor.loc[invc_app, "state"] & invc_app
+        self.sys_monitor.loc[warm_app, "warm_start_count"] += (exec_now[warm_app] - 1)
+
+        # cold start invocation func count then (coz this will change state)
+        cold_app = ~self.sys_monitor["state"].values & invc_app
+        self.sys_monitor.loc[cold_app, "state"] = True
+        self.sys_monitor.loc[cold_app, "cold_start_count"] += 1
+        self.sys_monitor.loc[cold_app, "warm_start_count"] += (exec_now[cold_app] - 2) # -2 is one for flag, one for cold start
+        
+        # update priority
+        self.sys_monitor.loc[invc_app, "frequency"] += 1 # update frequency
+        self.sys_monitor.loc[invc_app, "memory"] = self.app_mem_list[invc_app]
+        # self.sys_monitor.loc[invc_app, "priority"] = self.system_clock + self.sys_monitor.loc[invc_app, "frequency"] # update priority
+        self.sys_monitor.loc[invc_app, "priority"] = self.system_clock + np.divide(self.sys_monitor.loc[invc_app, "frequency"].values, self.app_mem_list[invc_app])# update priority
+        
+        # Engage management strategy -------------------------------
+        for app in self.sys_monitor.loc[idle_app].reset_index().sort_values(by=['priority']):
+            if needed_mem <= 0:
+                break
+            self.sys_monitor.loc[(app["HashOwner"].values, app["HashApp"].values), "state"] = False
+            needed_mem -= self.sys_monitor.loc[(app["HashOwner"].values, app["HashApp"].values), "memory"].values
+            self.sys_monitor.loc[(app["HashOwner"].values, app["HashApp"].values), "memory"] = 0 
+            
+        
+        # update idle/busy time, system memory consumption
+        # for those func stop running but app is running
+        idle_apps = self.sys_monitor["state"].values & ~exec_now.astype(bool)
+        self.sys_monitor.loc[idle_apps, (["idle_time", "idle_timer"])] += 1 
+        
+        # for thos func is running running and app is running
+        invc_app = (exec_now == 1) 
+        self.sys_monitor.loc[invc_app, "busy_time"] += 1
+        self.sys_monitor.loc[invc_app, "idle_timer"] = 0
+
+        self.current_mem = self.np.sum(self.sys_monitor["memory"].values)
+        
+        return True

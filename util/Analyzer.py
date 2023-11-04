@@ -92,42 +92,47 @@ class SystemAnalyzer():
         one_ave = np.array([])
         for app_exe_raw in exe_raw:
             app_exe_raw = app_exe_raw.groupby(["HashOwner", "HashApp"]).max().sort_index().iloc[:, 1:].values.astype(bool)
-            zero_sec = np.zeros(app_exe_raw.shape[0])
-            zero_cot = np.zeros(app_exe_raw.shape[0])
-            one_sec = np.zeros(app_exe_raw.shape[0])
-            one_cot = np.zeros(app_exe_raw.shape[0])
+            zero_sec = []
+            zero_cot = 0
+            one_sec = []
+            one_cot = 0
             for i in trange(app_exe_raw.shape[0]):
                 zeros = False
                 ones = False
                 for j in range (app_exe_raw.shape[1]):
                     if not app_exe_raw[i][j]:
-                        zero_cot[i] += 1
+                        zero_cot += 1
                     else:
-                        one_cot[i] += 1
+                        one_cot += 1
                     if not app_exe_raw[i][j] and not zeros:
                         zeros = True
                         ones = False
-                        zero_sec[i] += 1
+                        one_sec.append(one_cot)
+                        one_cot = 0
                     elif app_exe_raw[i][j] and not ones:
                         ones = True
                         zeros = False
-                        one_sec[i] += 1
+                        zero_sec.append(zero_cot)
+                        zero_cot = 0
                         
-            useful_sec_z = zero_sec > 0
-            zero_sec = zero_sec[useful_sec_z]
-            zero_cot = zero_cot[useful_sec_z]
+            # useful_sec_z = zero_sec > 0
+            # zero_sec = zero_sec[useful_sec_z]
+            # zero_cot = zero_cot[useful_sec_z]
             
-            useful_sec_o = one_sec > 0
-            one_sec = one_sec[useful_sec_o]
-            one_cot = one_cot[useful_sec_o]
+            # useful_sec_o = one_sec > 0
+            # one_sec = one_sec[useful_sec_o]
+            # one_cot = one_cot[useful_sec_o]
             
-            zero_ave = np.append(zero_ave, np.divide(zero_cot, zero_sec))
-            zero_ave = np.append(zero_ave, np.zeros(sum(~useful_sec_z)))
-            one_ave = np.append(one_ave, np.divide(one_cot, one_sec))
-            one_ave = np.append(one_ave, np.zeros(sum(~useful_sec_o)))
+            # zero_ave = np.append(zero_ave, np.divide(zero_cot, zero_sec))
+            # zero_ave = np.append(zero_ave, np.zeros(sum(~useful_sec_z)))
+            # one_ave = np.append(one_ave, np.divide(one_cot, one_sec))
+            # one_ave = np.append(one_ave, np.zeros(sum(~useful_sec_o)))
+        
+        zero_ave = zero_sec
+        one_ave = one_sec
             
-        cls.save_result(zero_ave.T, "result", "idle_sec.csv")
-        cls.save_result(one_ave.T, "result", "busy_sec.csv")
+        cls.save_result(np.array(zero_ave).T, "result", "idle_sec.csv")
+        cls.save_result(np.array(one_ave).T, "result", "busy_sec.csv")
             
         plt.figure(1)
         hist_, bin_edge = np.histogram(zero_ave, bins=np.arange(1441))
