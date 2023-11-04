@@ -56,7 +56,7 @@ if __name__ == '__main__':
     # print(result_lst)
     print("..................Simulation Finish.....................")
     
-    itv_len = len(intv_lst)
+    itv_len = len(arg_lst)
 
     # unpack result from multi-processing list
     cold_rate_data = [[] for _ in range(itv_len)]
@@ -68,10 +68,10 @@ if __name__ == '__main__':
             mem_rate_data[j] += result_lst[i][1][j]
 
     plt.figure(1)
-    SystemAnalyzer.draw_cold_rate(cold_rate_data, legend=intv_lst)
+    SystemAnalyzer.draw_cold_rate(cold_rate_data, legend=arg_lst)
         
     plt.figure(2)
-    SystemAnalyzer.draw_mem_rate(mem_rate_data, cold_rate_data, legend=intv_lst) 
+    SystemAnalyzer.draw_mem_rate(mem_rate_data, cold_rate_data, legend=arg_lst) 
     
     SystemAnalyzer.save_result(cold_rate_data, "result", "cold_rate_result.csv")
     SystemAnalyzer.save_result(mem_rate_data, "result", "mem_rate_result.csv")
